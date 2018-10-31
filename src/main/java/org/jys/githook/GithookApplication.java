@@ -1,4 +1,4 @@
-package org.jys.webhook;
+package org.jys.githook;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -7,6 +7,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class GithookApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(WebhookApplication.class, args);
+		SpringApplication.run(GithookApplication.class, args);
 	}
 }
