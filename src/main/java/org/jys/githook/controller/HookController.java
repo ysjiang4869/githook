@@ -6,10 +6,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import java.io.File;
 import java.nio.file.Paths;
 import java.io.IOException;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -26,19 +26,19 @@ import java.util.Objects;
 @RequestMapping(value="/hook")
 public class HookController{
 
-    @Value("${github.token")
+    @Value("${github.token}")
     private String githubToken;
 
-    @Value("${gitee.token")
+    @Value("${gitee.token}")
     private String giteeToken;
 
-    @Value("${coding.token")
+    @Value("${coding.token}")
     private String codingToken;
 
-    @Value("${script.path")
+    @Value("${script.path}")
     private String scriptPath;
 
-    private static final String GITHUB_AGENT="Github-Hookshot";
+    private static final String GITHUB_AGENT="GitHub-Hookshot";
     private static final String GITEE_AGENT="git-oschina-hook";
     private static final String CODING_AGENT="Coding.net Hook";
 
@@ -58,19 +58,17 @@ public class HookController{
                            @RequestHeader(value="X-Hub-Signature",required=false)String signature,
                            @PathVariable(value="repo")String repo,
                            @RequestBody String body){
+        
+        logger.info("recevie request form github, event: {}",event);
         if(!agent.contains(GITHUB_AGENT)){
-            logger.error("request not form github");
+            logger.error("agent valid failed,request not form github");
             throw new RuntimeException();        
         }
 
         //check signature to secure your app
-        if(signature!=null){
-            byte[] sha1Bytes=new HmacUtils(HmacAlgorithms.HMAC_SHA_1, githubToken).hmac(body);
-            String validation="sha1="+ Hex.encodeHexString(sha1Bytes);
-            if(!Objects.equals(validation,signature)){
-                logger.error("signature doesn't match !");
-                throw new RuntimeException();
-            }
+        if(signature!=null && !validation(githubToken,body,signature)){
+            logger.error("signature doesn't match !");
+            throw new RuntimeException();
         }
 
         execute(repo,event);
@@ -88,9 +86,10 @@ public class HookController{
                           @RequestHeader(value="X-Gitee-Event") String event,
                           @RequestHeader(value="X-Gitee-Token",required=false)String signature,
                           @PathVariable(value="repo")String repo){
-        
-        if(Objects.equals(GITEE_AGENT,agent)){
-            logger.error("request not form gitee");
+
+        logger.info("recevie request form gitee, event: {}",event); 
+        if(!Objects.equals(GITEE_AGENT,agent)){
+            logger.error("agent valid failed,request not form gitee");
             throw new RuntimeException();        
         }
 
@@ -112,23 +111,25 @@ public class HookController{
     @PostMapping(value="/coding/{repo}")
     public void codingHook(@RequestHeader(value="User-Agent") String agent,
                            @RequestHeader(value="X-Coding-Event") String event,
+                           @RequestHeader(value="X-Coding-Signature",required=false)String signature,
                            @PathVariable(value="repo")String repo,
-                           @RequestBody Map<String,Object> body){
+                           @RequestBody String body){
         
-        if(Objects.equals(CODING_AGENT,agent)){
-            logger.error("request not form coding");
+        logger.info("recevie request form coding, event: {}",event);
+        if(!Objects.equals(CODING_AGENT,agent)){
+            logger.error("agent valid failed,request not form coding");
             throw new RuntimeException();        
         }
 
-        //check signature to secure your app
-        String signature=(String)body.get("token");
-        if(signature!=null && !Objects.equals(codingToken,signature)){
+        //check signature to secure your app       
+        if(signature!=null && !validation(codingToken,body,signature)){
             logger.error("signature doesn't match !");
             throw new RuntimeException();
         }
         execute(repo,event);
     }
 
+    @Async
     private void execute(String repo, String event){
         File script=Paths.get(scriptPath,repo,event+".sh").toFile();
         String path=script.toString();
@@ -136,11 +137,25 @@ public class HookController{
             logger.error("script file {} not exist",path);
             throw new RuntimeException();
         }
-        ProcessBuilder builder=new ProcessBuilder(path);
+        ProcessBuilder builder=new ProcessBuilder("sudo",path);
+        int status=-1;
         try {
-            builder.start();
+            Process p=builder.start();
+            status=p.waitFor();
         } catch (IOException e) {
+            logger.error("failed to execute {}", path);
             logger.error(e.getMessage(),e);
+        } catch (InterruptedException e) {
+            logger.error("thread was interrupted when execute {}", path);
+            logger.error(e.getMessage(),e);
+            Thread.currentThread().interrupt();
         }
+        logger.info("execute {} end with exit code {} ",path,status);
+    }
+
+    private boolean validation(String key, String value, String signature){
+        byte[] sha1Bytes=new HmacUtils(HmacAlgorithms.HMAC_SHA_1, key).hmac(value);
+        String validation="sha1="+ Hex.encodeHexString(sha1Bytes);
+        return Objects.equals(validation,signature);
     }
 }
