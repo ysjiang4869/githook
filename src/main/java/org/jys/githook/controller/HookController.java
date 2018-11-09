@@ -87,6 +87,7 @@ public class HookController{
                           @RequestHeader(value="X-Gitee-Token",required=false)String signature,
                           @PathVariable(value="repo")String repo){
 
+        event=event.toLowerCase().split(" ")[0];
         logger.info("recevie request form gitee, event: {}",event); 
         if(!Objects.equals(GITEE_AGENT,agent)){
             logger.error("agent valid failed,request not form gitee");
